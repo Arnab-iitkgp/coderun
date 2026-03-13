@@ -9,7 +9,7 @@ const createSubmission  = async (data:CodeSubmission) => {
     return prisma.submission.create({
         data:{
             ...data,
-            status:"pending"
+            status:"queued"
         }
     });
 }
