@@ -20,6 +20,7 @@ async function writeCodeFile(dir: string, code: string) {
   await fs.writeFile(filePath, code);
   return filePath;
 }
+// this compilecode and runprogram function not required in docker environment so can be removed safely
 async function compileCode(dir: string): Promise<ExecutionResult> {
   return new Promise((resolve) => {
 
@@ -115,7 +116,57 @@ async function runProgram(
 async function cleanup(dir: string) {
   await fs.rm(dir, { recursive: true, force: true });
 }
+async function runDockerSandbox(
+  dir: string,
+  input: string
+): Promise<ExecutionResult> {
 
+  return new Promise((resolve) => {
+
+    const docker = spawn("docker", [
+      "run",
+      "--rm",
+      "--memory=256m",
+      "--cpus=1",
+      "--network",
+      "none",
+      "-v",
+      `${process.cwd()}/${dir}:/app`,
+      "codeforge-cpp-runner",
+      "bash",
+      "-c",
+      `g++ main.cpp -o program && echo "${input}" | timeout 2 ./program`
+    ]);
+
+    let output = "";
+    let error = "";
+
+    docker.stdout.on("data", (data) => {
+      output += data.toString();
+    });
+
+    docker.stderr.on("data", (data) => {
+      error += data.toString();
+    });
+
+    docker.on("close", (code) => {
+
+      if (code === 0) {
+        resolve({
+          success: true,
+          output: output.trim()
+        });
+      } else {
+        resolve({
+          success: false,
+          error
+        });
+      }
+
+    });
+
+  });
+}
 export async function executeCpp(
   submissionId: number,
   code: string,
@@ -128,15 +179,21 @@ export async function executeCpp(
 
     await writeCodeFile(dir, code);
 
-    const compile = await compileCode(dir);
+      // local environment
+    // const compile = await compileCode(dir);  
 
-    if (!compile.success) {
-      return compile;
-    }
+    // if (!compile.success) {
+    //   return compile;
+    // }
 
-    const run = await runProgram(dir, input);
+    // const run = await runProgram(dir, input);
 
-    return run;
+    // return run;
+
+    // Docker enviorment
+    const result = await runDockerSandbox(dir, input);
+
+    return result;
 
   } finally {
     await cleanup(dir);
