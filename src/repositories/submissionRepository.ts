@@ -18,7 +18,8 @@ const updateSubmission  = async (
     data:{
      output?: string;
      error?: string;
-    status :string
+    status :string,
+    runtime?:number
     }
 )=>{
     return prisma.submission.update({
