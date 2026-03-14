@@ -20,6 +20,7 @@ model Submission {
   language  String
   status    String
   output    String?
+  runtime   Int?
   error     String?
   createdAt DateTime @default(now())
 }

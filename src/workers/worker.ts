@@ -22,11 +22,12 @@ async function startWorker(){
                 await updateSubmission(job.submissionId,{
                     status:"running"
                 })
-                const verdict = await runJudge(job.submissionId,job.problemId,job.code);
+                const {verdict,time} = await runJudge(job.submissionId,job.problemId,job.code);
 
                 await updateSubmission(job.submissionId,{
                     status:"finished",
-                    output:verdict
+                    output:verdict,
+                    runtime:time
                 })
                 channel.ack(msg);
 

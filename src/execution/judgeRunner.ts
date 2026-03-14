@@ -7,33 +7,44 @@ export  async function runJudge(
     submisionId:number,
     problemId:string,
     code:string
-): Promise<Verdict> {
+): Promise<{ verdict: Verdict; time: number }> {
 
     const testcases = await loadTestCases(problemId);
-    
-    for(const testcase of testcases){
-        const result = await executeCpp(
-            submisionId,
-            code,
-            testcase.input
-        )
-        // stop execution on first failure.
-        if(!result.success){
-
-            if(result.timeout){
-                return "Time Limit Exceeded";
-            }
-
-            if(result.error?.includes("error")){
-                return "Compile Error";
-            }
-
-            return "Runtime Error"
+    const inputs = testcases.map(t=>t.input);
+    let output:string;
+    let execTime:number=0;
+    try {
+        const result = await executeCpp(submisionId,code,inputs);
+         output = result.output ?? "";
+         execTime = result.time ?? 0;;
+        if(result.timeout){
+            return {verdict:"Time Limit Exceeded",time:execTime}
         }
-        const correct = compareOutput(testcase.expectedOutput,result.output ?? "")
+        if(!result.success){
+            return {verdict: result.error === "Compile Error" ? "Compile Error" : "Runtime Error", time:0}
+        }
+    } catch (error) {
+         if (error === "Compile Error") {
+      return {verdict:"Compile Error",time:0};
+    }
+
+    return {verdict:"Runtime Error",time:0};
+    }
+    const results = output
+  .split("\n")
+  .map(line => line.trim())
+  .filter(line => line.length > 0);
+    console.log("RAW OUTPUT FROM CONTAINER:");
+    console.log(output);
+    for(let i=0;i<testcases.length;i++){
+        const expected:any= testcases[i]?.expectedOutput;
+        const actual = results[i]?.trim() ?? "";
+        console.log("Expected:", expected);
+        console.log("Actual:", actual);
+        const correct = compareOutput(expected,actual)
         if(!correct){
-            return "Wrong Answer";
+            return {verdict:"Wrong Answer",time:execTime}
         }
     }
-      return "Accepted";
+      return {verdict:"Accepted",time:execTime};
 }

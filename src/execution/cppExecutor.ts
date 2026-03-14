@@ -1,12 +1,13 @@
-import {spawn} from "child_process"
+import { spawn } from "child_process"
 import fs from "fs/promises"
 import path from "path"
 
-export type ExecutionResult ={
-    success:boolean;
-    output?:string;
-    error?:string;
-    timeout?: boolean
+export type ExecutionResult = {
+  success: boolean;
+  output?: string;
+  error?: string;
+  timeout?: boolean;
+  time?: number;
 }
 const TIME_LIMIT = 2000;
 
@@ -167,11 +168,88 @@ async function runDockerSandbox(
 
   });
 }
+
+async function runDocker(dir: string): Promise<ExecutionResult> {
+
+  return new Promise((resolve) => {
+
+    const start = Date.now();
+
+    const docker = spawn("docker", [
+      "run",
+      "--rm",
+      "--memory=256m",
+      "--cpus=1",
+      "--network",
+      "none",
+      "-v",
+      `${process.cwd()}/${dir}:/app`,
+      "codeforge-cpp-runner",
+      "bash",
+      "/app/run.sh"
+    ]);
+
+    let output = "";
+    let error = "";
+
+    docker.stdout.on("data", (data) => {
+      output += data.toString();
+    });
+
+    docker.stderr.on("data", (data) => {
+      error += data.toString();
+    });
+
+    docker.on("close", (code) => {
+
+      const end = Date.now();
+      //TODO: COMPILE ERROR NOT WORKING RN, DO LATER
+      if (output.includes("__COMPILE_ERROR__")) {
+        resolve({
+          success: false,
+          error: "Compile Error"
+        });
+        return;
+      }
+      if (error.includes("__COMPILE_ERROR__")) {
+        resolve({
+          success: false,
+          error: "Compile Error"
+        });
+        return;
+      }
+
+      if (output.includes("__TLE__")) {
+        resolve({
+          success: false,
+          timeout: true,
+          error: "Time Limit Exceeded"
+        });
+        return;
+      }
+      resolve({
+        success: code === 0,
+        output: output.trim(),
+        error,
+        time: end - start
+      });
+
+    });
+
+  });
+
+}
+async function writeTestcases(dir: string, inputs: string[]) {
+  for (const [i, input] of inputs.entries()) {
+    const file = path.join(dir, `input${i + 1}.txt`);
+    await fs.writeFile(file, input);
+  }
+}
 export async function executeCpp(
   submissionId: number,
   code: string,
-  input: string
-): Promise<ExecutionResult> {
+  inputs: string[]
+) {
 
   const dir = await createExecutionDir(submissionId);
 
@@ -179,7 +257,7 @@ export async function executeCpp(
 
     await writeCodeFile(dir, code);
 
-      // local environment
+    // local environment
     // const compile = await compileCode(dir);  
 
     // if (!compile.success) {
@@ -191,11 +269,45 @@ export async function executeCpp(
     // return run;
 
     // Docker enviorment
-    const result = await runDockerSandbox(dir, input);
+    // const result = await runDockerSandbox(dir, input);
+    //optimisation
 
-    return result;
+    await writeTestcases(dir, inputs);
+
+    await writeRunnerScript(dir);
+
+    const output = await runDocker(dir);
+
+    return output;
 
   } finally {
     await cleanup(dir);
   }
+}
+async function writeRunnerScript(dir: string) {
+  const script = `
+#!/bin/bash
+
+g++ main.cpp -o program
+if [ $? -ne 0 ]; then
+  echo "__COMPILE_ERROR__"
+  exit 1
+fi
+
+for file in $(ls input*.txt | sort -V)
+do
+  timeout 2 ./program < "$file"
+
+  if [ $? -eq 124 ]; then
+    echo "__TLE__"
+    exit 124
+  fi
+
+  echo ""
+done
+`;
+
+  const pathFile = path.join(dir, "run.sh");
+
+  await fs.writeFile(pathFile, script);
 }
